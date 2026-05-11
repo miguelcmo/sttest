@@ -52,7 +52,7 @@ section[data-testid="stSidebar"] {
 }
 
 h1, h2, h3 {
-    color: white;
+    color: black;
 }
 
 div[data-testid="metric-container"] {
@@ -100,7 +100,9 @@ time_range = st.sidebar.selectbox(
         "-6h",
         "-12h",
         "-24h",
-        "-7d"
+        "-7d",
+        "-14d",
+        "-30d"
     ],
     index=1
 )
@@ -127,7 +129,7 @@ selected_measurements = st.sidebar.multiselect(
 # TITLE
 # =========================================================
 
-st.title("🏭 Industrial Drying Oven SCADA")
+st.title("🏭 Industrial Drying Oven Dashboard")
 st.caption("Sistema Industrial de Monitoreo y Telemetría")
 
 # =========================================================
