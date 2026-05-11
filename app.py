@@ -41,7 +41,7 @@ query_api = client.query_api()
 
 query = f'''
 from(bucket: "{BUCKET}")
-  |> range(start: -1h)
+  |> range(start: -1d)
 '''
 
 # =========================
