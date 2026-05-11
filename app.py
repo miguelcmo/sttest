@@ -31,12 +31,12 @@ html, body, [class*="css"] {
 }
 
 .stApp {
-    background-color: #0E1117;
+    background-color: #eeeee;
     color: white;
 }
 
 section[data-testid="stSidebar"] {
-    background-color: #161B22;
+    background-color: #eeeeee;
 }
 
 .metric-card {
