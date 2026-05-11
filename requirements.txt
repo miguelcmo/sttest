@@ -1,4 +1,4 @@
 streamlit
 pandas
-infludb-client
+influxdb-client
 plotly
