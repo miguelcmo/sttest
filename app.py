@@ -70,7 +70,7 @@ div[data-testid="metric-container"] {
 # =========================================================
 
 URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
-TOKEN = "TU_TOKEN"
+TOKEN = "EJwrNIOrygCc52EJm-H0NVuHwUapDRTUdEiJ4rCwz3H_cwi_APdfpViMMc9bmzfzcfg9dub8uibJw0fpekAIVQ=="
 ORG = "miguelcmo"
 BUCKET = "iot_telemetry_data"
 
