@@ -1,423 +1,139 @@
-# app.py
-
 import streamlit as st
-import pandas as pd
-import numpy as np
 from influxdb_client import InfluxDBClient
+import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
-# =========================================================
-# CONFIG PAGE
-# =========================================================
+# ---------------------------
+# CONFIG
+# ---------------------------
+url = "https://us-east-1-1.aws.cloud2.influxdata.com"
+token = "5FESPQw5t4qA4GgZmyeZ9mu7u1sbtauo4Hh8tjRi1E8sdrIgzXAX5ESk4n5MmcpAjJWEGgEKklFX0LNasnUmng=="
+org = "miguelcmo"
+bucket = "iot_telemetry_data"
 
-st.set_page_config(
-    page_title="Industrial IoT SCADA",
-    page_icon="🏭",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ---------------------------
+# STREAMLIT UI
+# ---------------------------
+st.set_page_config(page_title="IoT Dashboard", layout="wide")
 
-# =========================================================
-# CUSTOM CSS
-# =========================================================
+st.title("🌡️ IoT Telemetry Dashboard")
+st.markdown("Monitoreo de temperatura y humedad en tiempo real")
 
-st.markdown("""
-<style>
-
-html, body, [class*="css"] {
-    font-family: 'Segoe UI', sans-serif;
-}
-
-.stApp {
-    background-color: #eeeee;
-    color: white;
-}
-
-section[data-testid="stSidebar"] {
-    background-color: #eeeeee;
-}
-
-.metric-card {
-    background: linear-gradient(145deg,#161B22,#1E2633);
-    padding: 20px;
-    border-radius: 18px;
-    border: 1px solid #2D3748;
-    box-shadow: 0px 0px 12px rgba(0,0,0,0.4);
-}
-
-.block-container {
-    padding-top: 1rem;
-}
-
-h1, h2, h3 {
-    color: black;
-}
-
-div[data-testid="metric-container"] {
-    background-color: #161B22;
-    border: 1px solid #2D3748;
-    padding: 15px;
-    border-radius: 16px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# INFLUX CONFIG
-# =========================================================
-
-URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
-TOKEN = "EJwrNIOrygCc52EJm-H0NVuHwUapDRTUdEiJ4rCwz3H_cwi_APdfpViMMc9bmzfzcfg9dub8uibJw0fpekAIVQ=="
-ORG = "miguelcmo"
-BUCKET = "iot_telemetry_data"
-
-# =========================================================
-# CONNECT
-# =========================================================
-
-client = InfluxDBClient(
-    url=URL,
-    token=TOKEN,
-    org=ORG
-)
-
-query_api = client.query_api()
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-st.sidebar.title("⚙️ Control Industrial")
+# Sidebar
+st.sidebar.header("Configuración")
 
 time_range = st.sidebar.selectbox(
     "Rango de tiempo",
-    [
-        "-15m",
-        "-1h",
-        "-6h",
-        "-12h",
-        "-24h",
-        "-7d",
-        "-14d",
-        "-30d"
-    ],
-    index=1
+    ["-1h", "-6h", "-12h", "-24h", "-7d"],
+    index=3
 )
 
-refresh = st.sidebar.slider(
-    "Auto Refresh (segundos)",
-    5,
-    120,
-    30
-)
+refresh = st.sidebar.slider("Auto-refresh (segundos)", 0, 60, 10)
 
-show_raw = st.sidebar.checkbox("Mostrar Datos Crudos")
-
-selected_measurements = st.sidebar.multiselect(
-    "Measurements",
-    [
-        "environment",
-        "mpu6050"
-    ],
-    default=["environment", "mpu6050"]
-)
-
-# =========================================================
-# TITLE
-# =========================================================
-
-st.title("🏭 Industrial Drying Oven Dashboard")
-st.caption("Sistema Industrial de Monitoreo y Telemetría")
-
-# =========================================================
-# QUERY FUNCTION
-# =========================================================
-
-def load_measurement(measurement):
+# ---------------------------
+# DATA FUNCTION
+# ---------------------------
+@st.cache_data(ttl=10)
+def load_data(time_range):
+    client = InfluxDBClient(url=url, token=token, org=org)
+    query_api = client.query_api()
 
     query = f'''
-    from(bucket: "{BUCKET}")
+    from(bucket: "{bucket}")
       |> range(start: {time_range})
-      |> filter(fn: (r) => r["_measurement"] == "{measurement}")
+      |> filter(fn: (r) => r["_field"] == "temperature" or r["_field"] == "humidity")
+      |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+      |> keep(columns: ["_time", "temperature", "humidity"])
     '''
 
-    df = query_api.query_data_frame(query)
+    result = query_api.query_data_frame(query)
 
-    if isinstance(df, list):
-        df = pd.concat(df)
+    if isinstance(result, list):
+        df = pd.concat(result)
+    else:
+        df = result
 
     if df.empty:
-        return pd.DataFrame()
+        return df
 
-    remove_cols = [
-        "result",
-        "table",
-        "_start",
-        "_stop"
-    ]
-
-    for col in remove_cols:
-        if col in df.columns:
-            df = df.drop(columns=[col])
+    df["_time"] = pd.to_datetime(df["_time"])
+    df = df.sort_values("_time")
 
     return df
 
-# =========================================================
+# ---------------------------
 # LOAD DATA
-# =========================================================
+# ---------------------------
+df = load_data(time_range)
 
-env_df = load_measurement("environment")
-mpu_df = load_measurement("mpu6050")
+# ---------------------------
+# METRICS
+# ---------------------------
+if not df.empty:
+    col1, col2, col3, col4 = st.columns(4)
 
-# =========================================================
-# ENVIRONMENT SECTION
-# =========================================================
+    col1.metric("🌡️ Temp actual", f"{df['temperature'].iloc[-1]:.2f} °C")
+    col2.metric("💧 Humedad actual", f"{df['humidity'].iloc[-1]:.2f} %")
+    col3.metric("📊 Temp promedio", f"{df['temperature'].mean():.2f} °C")
+    col4.metric("📊 Humedad promedio", f"{df['humidity'].mean():.2f} %")
 
-if "environment" in selected_measurements:
+# ---------------------------
+# CHARTS
+# ---------------------------
+if not df.empty:
 
-    st.header("🌡️ Environmental Monitoring")
+    st.subheader("📈 Serie de tiempo")
 
-    if not env_df.empty:
+    fig = px.line(
+        df,
+        x="_time",
+        y=["temperature", "humidity"],
+        title="Temperature & Humidity"
+    )
 
-        humidity_df = env_df[env_df["_field"] == "humidity"]
-        temperature_df = env_df[env_df["_field"] == "temperature"]
+    st.plotly_chart(fig, use_container_width=True)
 
-        col1, col2, col3, col4 = st.columns(4)
+    # ---------------------------
+    # RESAMPLING
+    # ---------------------------
+    st.subheader("⏱️ Promedio cada 10 minutos")
 
-        latest_temp = temperature_df["_value"].iloc[-1] if not temperature_df.empty else 0
-        latest_humidity = humidity_df["_value"].iloc[-1] if not humidity_df.empty else 0
+    #df_resampled = df.set_index("_time").resample("10min").mean().dropna()
+    # Asegurar tipos numéricos
+    df["temperature"] = pd.to_numeric(df["temperature"], errors="coerce")
+    df["humidity"] = pd.to_numeric(df["humidity"], errors="coerce")
+    
+    # Asegurar datetime index
+    df["_time"] = pd.to_datetime(df["_time"])
+    
+    # Resample SOLO columnas numéricas
+    df_resampled = (
+        df.set_index("_time")[["temperature", "humidity"]]
+        .resample("10min")
+        .mean()
+        .dropna()
+    )
 
-        with col1:
-            st.metric(
-                "Temperatura Horno",
-                f"{latest_temp:.2f} °C"
-            )
+    fig2 = px.line(
+        df_resampled,
+        x=df_resampled.index,
+        y=["temperature", "humidity"],
+        title="Smoothed Data (10min avg)"
+    )
 
-        with col2:
-            st.metric(
-                "Humedad",
-                f"{latest_humidity:.2f} %"
-            )
+    st.plotly_chart(fig2, use_container_width=True)
 
-        with col3:
-            st.metric(
-                "Máxima Temp",
-                f"{temperature_df['_value'].max():.2f} °C"
-            )
+    # ---------------------------
+    # RAW DATA
+    # ---------------------------
+    st.subheader("📋 Datos crudos")
+    st.dataframe(df.tail(50))
 
-        with col4:
-            st.metric(
-                "Promedio Humedad",
-                f"{humidity_df['_value'].mean():.2f} %"
-            )
-
-        # TEMPERATURE CHART
-
-        fig_temp = px.line(
-            temperature_df,
-            x="_time",
-            y="_value",
-            title="Temperatura del Horno"
-        )
-
-        fig_temp.update_layout(
-            template="plotly_dark",
-            height=400
-        )
-
-        st.plotly_chart(fig_temp, use_container_width=True)
-
-        # HUMIDITY CHART
-
-        fig_hum = px.area(
-            humidity_df,
-            x="_time",
-            y="_value",
-            title="Humedad Ambiental"
-        )
-
-        fig_hum.update_layout(
-            template="plotly_dark",
-            height=400
-        )
-
-        st.plotly_chart(fig_hum, use_container_width=True)
-
-        # GAUGE
-
-        gauge_fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=float(latest_temp),
-            title={'text': "Temperatura Actual"},
-            gauge={
-                'axis': {'range': [0, 300]},
-                'bar': {'color': "orange"},
-                'steps': [
-                    {'range': [0, 100], 'color': "green"},
-                    {'range': [100, 200], 'color': "yellow"},
-                    {'range': [200, 300], 'color': "red"},
-                ]
-            }
-        ))
-
-        gauge_fig.update_layout(
-            template="plotly_dark",
-            height=350
-        )
-
-        st.plotly_chart(gauge_fig, use_container_width=True)
-
-# =========================================================
-# MPU6050 SECTION
-# =========================================================
-
-if "mpu6050" in selected_measurements:
-
-    st.header("⚙️ Agitation & Vibration Analysis")
-
-    if not mpu_df.empty:
-
-        accel_fields = [
-            "accel_x",
-            "accel_y",
-            "accel_z"
-        ]
-
-        gyro_fields = [
-            "gyro_x",
-            "gyro_y",
-            "gyro_z"
-        ]
-
-        accel_df = mpu_df[mpu_df["_field"].isin(accel_fields)]
-        gyro_df = mpu_df[mpu_df["_field"].isin(gyro_fields)]
-
-        # ACCELERATION CHART
-
-        fig_accel = px.line(
-            accel_df,
-            x="_time",
-            y="_value",
-            color="_field",
-            title="Aceleración del Sistema de Agitación"
-        )
-
-        fig_accel.update_layout(
-            template="plotly_dark",
-            height=500
-        )
-
-        st.plotly_chart(fig_accel, use_container_width=True)
-
-        # GYRO CHART
-
-        fig_gyro = px.line(
-            gyro_df,
-            x="_time",
-            y="_value",
-            color="_field",
-            title="Velocidad Angular / Vibración"
-        )
-
-        fig_gyro.update_layout(
-            template="plotly_dark",
-            height=500
-        )
-
-        st.plotly_chart(fig_gyro, use_container_width=True)
-
-        # HEATMAP
-
-        pivot_df = gyro_df.pivot_table(
-            index="_time",
-            columns="_field",
-            values="_value"
-        )
-
-        heatmap = go.Figure(data=go.Heatmap(
-            z=pivot_df.T.values,
-            x=pivot_df.index,
-            y=pivot_df.columns
-        ))
-
-        heatmap.update_layout(
-            template="plotly_dark",
-            title="Mapa Térmico de Vibraciones",
-            height=400
-        )
-
-        st.plotly_chart(heatmap, use_container_width=True)
-
-        # STATS
-
-        st.subheader("📈 Estadísticas Industriales")
-
-        stats = mpu_df.groupby("_field")["_value"].agg([
-            "mean",
-            "max",
-            "min",
-            "std"
-        ])
-
-        st.dataframe(
-            stats,
-            use_container_width=True
-        )
-
-# =========================================================
-# ALERT SYSTEM
-# =========================================================
-
-st.header("🚨 Alertas Industriales")
-
-alerts = []
-
-if not env_df.empty:
-
-    temp_now = temperature_df["_value"].iloc[-1]
-
-    if temp_now > 200:
-        alerts.append("🔥 Temperatura crítica en horno")
-
-    if temp_now < 40:
-        alerts.append("⚠️ Temperatura demasiado baja")
-
-if not mpu_df.empty:
-
-    accel_peak = accel_df["_value"].abs().max()
-
-    if accel_peak > 15:
-        alerts.append("⚠️ Vibración excesiva detectada")
-
-if len(alerts) == 0:
-    st.success("Sistema operando normalmente")
 else:
-    for alert in alerts:
-        st.error(alert)
+    st.warning("No hay datos disponibles en este rango de tiempo")
 
-# =========================================================
-# RAW DATA
-# =========================================================
-
-if show_raw:
-
-    st.header("🧾 Datos Crudos")
-
-    if not env_df.empty:
-        st.subheader("Environment")
-        st.dataframe(env_df, use_container_width=True)
-
-    if not mpu_df.empty:
-        st.subheader("MPU6050")
-        st.dataframe(mpu_df, use_container_width=True)
-
-# =========================================================
-# FOOTER
-# =========================================================
-
-st.caption(
-    f"Última actualización: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-)
+# ---------------------------
+# AUTO REFRESH
+# ---------------------------
+if refresh > 0:
+    st.rerun()
